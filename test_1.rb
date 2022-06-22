@@ -1,4 +1,4 @@
-Purrr purr littel cat, little cat purr purr humans,humans, 
+Purrr purr little cat, little cat purr purr humans,humans, 
 	humans oh how much they love us felines 
 	we are the center of attention they feed, 
 	they clean whenever a door is opened, 
