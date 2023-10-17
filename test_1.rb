@@ -4,8 +4,6 @@ Purrr purr little cat, little cat purr purr humans,humans,
 	they clean whenever a door is opened, 
 rush in before the human chew on cable for attack dog, 
 
-run away and pretend to be victim or 
-
 pushed the mug off the table so hey! you there, with the hands. 
 
 Run as fast as i can into another room for no reason 
