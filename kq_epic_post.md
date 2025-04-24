@@ -127,24 +127,15 @@ To populate our new `pull_requests.status`column, we needed to backfill with the
 While the logging indicated everything had run as expected, Kusto, datadot, and analytics hosts suggested the backfill had missed some pull requests[^2]. This was potentially an enormous setback. To find a reliable source of truth, we reached out to several teams and finally learned that what we needed was a new full snapshot of the table. With that done, we were able to determine that the backfill was mostly successful and the remaining group of pull requests missing `status` data were from the period after dual writing was introduced.
 
 #### Obstacle 4: But they were all of them deceived, for another bug was made
-And so we began fixing our dual writing bug, [a saga in itself](https://github.com/github/pull-requests/issues/15850). Our initial implementation set a pull request's status at the same time that an issue state was set via an existing ActiveRecord callback on the issue[^3]. The unexpected flaw there was again to how the issue is created just before the associated pull request. Our first thought was to move this into its own callback on the pull request, but we decided to give orchestrations a try after some feedback from the Issues team[^4]. Yet we still encountered new mismatched records.
+And so we began fixing our dual writing bug, [a saga in itself](https://github.com/github/pull-requests/issues/15850). Our initial implementation set a pull request's status at the same time that an issue state was set via an existing ActiveRecord callback on the issue[^3]. The unexpected flaw with that was related to how an issue is created just before its associated pull request. Our first thought was to move this into its own callback on the pull request, but we decided to give orchestrations a try after some feedback from the Issues team[^4]. But we still encountered new mismatched records as there now a race condition between two orchestration processes and further iterations on this path caused deadlocks. Ultimately, the solution involved a callback on the issue that was localized to update pull request `status` whenever an issue's `state` changed. Phew.
 
-
-
-_Include info about the gap between old/new dual writing and how we had to run a targeted transition/background job/etc_
-
-
-### Become the heroes
-
-_Not sure we need this section_
-
-_Should I mention how issues team also worked on similar efforts here?_
-
-[Scientist](https://github.com/github/scientist) was our champion in this epic as we ran 12 separate experiments to validate our changes.
+And yet, the wraiths were still at our heels. Due to the multiple iterations of bug fixing, we had to run more transitions to update pull requests records. In one, we discovered that our use of Active Record lookups allowed for a gap between reading and writing and that direct queries were needed. In another, we learned how to be more targeted by creating a CSV of mismatched pull requests and iterating over them directly.
 
 ### Revel in your triumph
 
 Though the quest was arduous and many shadows befell us, at last we reaped the harvest of victory. (_i hope :lolsob:_)
+
+In this epic as we ran 12 [Scientist](https://github.com/github/scientist) experiments to validate our changes, some with multiple iterations.
 
 _Results with ✨graphs✨_
 
@@ -153,11 +144,11 @@ _Results with ✨graphs✨_
 This project spanned many months and thus there was a lot to learn.
 1. Even if there are only a few people directly working on it at first, start a new public Slack channel dedicated solely to the project. This centralizes conversations and makes it easier to find history and share with others.
 2. Communicate with other teams early if the work could span beyond your team. As these queries occur on a shared `issues-pull-requests` cluster, eventually the Issues team began work that overlapped with ours. If we'd started that conversation earlier we could have more quickly identified opportunities to collaborate.
-3. _the thing where we removed old code at the same time as adding new code for dual writing and the gap left mismatches_
-
+3. Be careful with your feature flags. When we were troubleshooting the dual writing bugs, we opened a pull request to implement a new pathway while also removing the old way. On the surface that seemed like an efficient way to do it, but what we didn't consider was that the two ways were controlled by different feature flags. So there was a gap between when the old one was turned off and the new one was fully ramped up. This was a contributing factor to our record mismatches.
+   
 Additionally, this project generated some open questions for future development.
 1. Currently, the queries section of a service's scorecard only passes if there are no killed/slow queries. Even one causes it to fail. Is there a way that we can make this more granular to better estimate impact and priority?
-2. Finding and verifying record data was difficult and left us with low confidence. Is there a better way to identify which source to use, how, and when?
+2. Finding and verifying database records was difficult and left us with low confidence. Is there a better way to identify which source to use, how, and when?
 3. Transitions can be tricky and we encountered several setbacks. How can we improve this process to allow for better troubleshooting?
 
 ---
