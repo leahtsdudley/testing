@@ -126,7 +126,7 @@ While the logging indicated everything had run as expected, Kusto, datadot, and 
 #### Obstacle 4: But they were all of them deceived, for another bug was made
 And so we began fixing our dual writing bug, [a saga in itself](https://github.com/github/pull-requests/issues/15850). Our initial implementation set a pull request's status at the same time that an issue state was set via an existing ActiveRecord callback on the issue[^3]. The unexpected flaw with that was related to how an issue is created just before its associated pull request. Our first thought was to move this into its own callback on the pull request, but we decided to give orchestrations a try after some feedback from the Issues team[^4]. But we still encountered new mismatched records as there now a race condition between two orchestration processes and further iterations on this path caused deadlocks. Ultimately, the solution involved a callback on the issue that was localized to update pull request `status` whenever an issue's `state` changed. Phew.
 
-And yet, the wraiths were still at our heels. Due to the multiple iterations of bug fixing, we had to run more transitions to update pull requests records. In one, we discovered that our use of Active Record lookups allowed for a gap between reading and writing and that direct queries were needed. In another, we learned how to be more targeted by creating a CSV of mismatched pull requests and iterating over them directly.
+And yet, the wraiths were still at our heels. Due to the multiple iterations of bug fixing, we still had out-of-sync pull request records. Instead of re-running the full transition, we took a more targeted approach by creating a transition that iterated over a CSV of only remaining mismatched records.
 
 ### Revel in your triumph
 
@@ -144,14 +144,15 @@ This project spanned many months and thus there was a lot to learn.
 3. Be careful with your feature flags. When we were troubleshooting the dual writing bugs, we opened a pull request to implement a new pathway while also removing the old way. On the surface that seemed like an efficient way to do it, but what we didn't consider was that the two ways were controlled by different feature flags. So there was a gap between when the old one was turned off and the new one was fully ramped up. This was a contributing factor to our record mismatches.
    
 Additionally, this project generated some open questions for future development.
-1. Currently, the queries section of a service's scorecard only passes if there are no killed/slow queries. Even one causes it to fail. Is there a way that we can make this more granular to better estimate impact and priority?
-2. Finding and verifying database records was difficult and left us with low confidence. Is there a better way to identify which source to use, how, and when?
+1. The queries section of a service's scorecard only passes if there are no killed/slow queries. Even one causes it to fail. Is there a way that we can make this more granular to better estimate impact and priority?[^5]
+2. When attempting to verify the success of our transitions, we struggled to determine gain confidence as each source returned different results. Is there a better way to identify which source to use, how, and when?
 3. Transitions can be tricky and we encountered several setbacks. How can we improve this process to allow for better troubleshooting?
 
 ---
 This was a major effort and included collaboration from many people and teams. Thank you to @jankoszewski, @another-mattr, @blakewilliams, @arthurschreiber, @hasan-dot, @ekroon, @christianlang, @derekprior, @elenatanasoiu, `@danhodos`, `@rufo`, and `@dzader`! (_am I missing anyone?_)
 
-[^1]: If you want to see the full journey, you can follow along [here](https://github.com/github/mysql-database-usage/issues/1473#issuecomment-2539459465).
+[^1]: The full journey is outlined [here](https://github.com/github/mysql-database-usage/issues/1473#issuecomment-2539459465).
 [^2]: https://github.com/github/pull-requests/issues/15675#issuecomment-2640038704
 [^3]: https://github.com/github/github/pull/348838
 [^4]: This pattern is generally preferred over callbacks to prevent long-running transactions and lock contention; https://github.com/github/github/pull/361425
+[^5]: There is [a discussion](https://docs.google.com/document/d/1BS1ZvCJ5k7vp73XlKj_Rh5XOxd7eYkpxpPW2AZIZWDM) open about this.
