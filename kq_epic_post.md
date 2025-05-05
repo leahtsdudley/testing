@@ -1,6 +1,8 @@
+#### this is the combined post for the epic, which will be split into parts
+
 ## Super cool title that I’ll figure out later
 
-Copilot's suggestions 
+Copilot's suggestions
 (_for some reason CP insists that a title must contain a colon 🤷_)
 - Fixing the Hitch in Our Database Giddy-Up _(looolllll 🤠)_
 - Debugging the Database Blues
@@ -36,28 +38,26 @@ _DATA HERE_
 - _% of killed queries (timed out, other wording to make it clearer?) out of the total number queries before/after_
 
 - _Contextualize that the improvement improved customer experience_
-  
+
 - _Point out that the same queries run without timing out after_
-  
+
 - _List of common query killers?_
 
 ### Gather your equipment
 The first step in any valiant quest is to study your map. So, we started with the basics:
-- What are the queries we need to solve? 
+- What are the queries we need to solve?
 - Where are they originating?
 - How many times are they happening per week?
-- How long do they take on average? 
+- How long do they take on average?
 
 We learn about problematic queries from automatically generated issues in the [mysql-database-usage repo](https://github.com/github/mysql-database-usage/issues?q=is%3Aissue%20state%3Aopen%20github%2Fpull_requests%20). With the data laid out, we could focus and prioritize. So just work your way from the top, right? We soon found there were a few snags to this seemingly simple approach.
 
 1. **The scorecard isn't static**. An existing query might be improved by an indirect change, or a new problematic query could arise from updated code or processes. With moving targets we needed to keep a closer eye on which queries were impacting us the most.
-2. **Query identifiers change**. Each query is attached to a `fingerprint` as a unique identifier. The fingerprint's goal is to group similar queries that are structured the same way, but contain different IDs and field values. But sometimes a query's fingerprint changes. For example, in late November 2024, several of our affected queries appeared to have been solved, but at the same time new issues were being created with identical query structures and entry points but new fingerprints, [which we're tracking here](https://github.com/github/mysql-database-scorecard/issues/57). This meant that we had to be vigilant about cross-referencing old query issues to new ones.
+2. **Query identifiers change**. Each query is attached to a `fingerprint` as a unique identifiera and its goal is to group similar queries that are structured the same way, but contain different IDs and field values. But sometimes a query's fingerprint changes. For example, in late November 2024, several of our affected queries appeared to have been solved, but at the same time new issues were being created with identical query structures and entry points but new fingerprints, [which we're tracking here](https://github.com/github/mysql-database-scorecard/issues/57). This meant that we had to be vigilant about cross-referencing old query issues to new ones.
 3. **Automations aren't perfect**. Killed query issues are regularly updated via automation with current performance data, which we used to determine impact and set priorities. We noticed multiple times that we stopped getting updates from the bot, which kept us from seeing if our data was accurate or current. Eventually the automation was fixed, but it was difficult to get this information in the meantime.
 
 ### Plan your adventure
-With those challenges in mind, we began to strategize. We started by grouping our initial set of queries by possible solutions, including [batching](https://github.com/github/pull-requests/issues/14462) and [adding new indexes](https://github.com/github/pull-requests/issues/14461). 
-
-However, a common trait among these killed queries was a non-performant join on the `issues` table. Because pull requests continue to track their state with an issue under the hood, querying a pull request by its state required us to also query the `issues` table. This resulted in queries that looked something like this:
+With those challenges in mind, we gathered our fellowship began to strategize. There were a couple of approaches we explore, but the most common trait among these killed queries was a non-performant join on the `issues` table. Because pull requests continue to track their state with an issue under the hood, querying a pull request by its state required us to also query the `issues` table. This resulted in queries that looked something like this:
 ```
 SELECT
     COUNT (*)
@@ -77,9 +77,9 @@ SELECT
 The basic question here is "Why can't a pull request have its own state?". The answer seemed like a clear win. Put a `state` column on `pull_requests` and remove the expensive join on issues `state`. Easy peasy.
 
 ### Face the challengers
-Spoiler alert: It was not easy peasy. Like a labyrinth, the more turns we took, the more twists we discovered.
+Spoiler alert: It was not easy peasy. Like the treacherous paths of Caradhras, we encountered dead ends that pushed us to try other routes.
 
-#### Obstacle 1: When is a state not a state
+#### Obstacle 1: The column that could not be named
 An issue can be one of two states - open or closed. The same is true for pull requests at the database level. However, at the model level, a pull request can have three states: open, closed, or merged, as determined by the [PullRequest#state method](https://github.com/github/github/blob/a18286f131f4dc80dcbab605938125fcd9ac509d/packages/pull_requests/app/models/pull_request.rb#L650-L654). The existence of this method blocked us from simply adding a `pull_requests.state` field. We briefly explored some workarounds for this naming conflict, however, the best  solution ended up being the simplest one; choose a different column name. With `pull_requests.status` in place, we could continue on our way.
 
 #### Obstacle 2: We've had one, yes, but what about second join
@@ -114,7 +114,7 @@ SELECT
 
 Simply swapping `issues.state` for `pull_request.status` wasn't enough for these queries; they were still timing out. Thus we explored other optimizations, including breaking out subqueries, forcing or ignoring an index, and reorganizing the query structure, none of which showed improvements[^1]. We even considered storing label ids in a new column on `issues` to eliminate the extra joins, but that presented its own big lift that seemed far outside the scope of this epic.
 
-So, like the dwarves in the mines of Moria, we dug deeper to determine _who_ was hitting these queries. Over a period of 30 days, we found that between the two queries, all calls were coming from only 4 users within 4 repos. More interestingly, all 4 users were GitHub apps mimicking merge queue functionality. One in particular was causing around 10k events routinely every 20 minutes. With this new information, our minds turned towards rate limiting. Unfortunately, rate limits are set based on individual app installations and cannot be applied by query fingerprint, so they were too blunt to deploy here.
+So, like the dwarves in the mines of Moria, we dug deeper to determine _who_ was hitting these queries. Over a period of 30 days, we found that between the two queries, all calls were coming from only 4 users within 4 repos. More interestingly, all 4 users were GitHub apps mimicking merge queue functionality. One in particular was routinely causing around 10k events every 20 minutes. With this new information, our minds turned towards rate limiting. Unfortunately, rate limits are set based on individual app installations and cannot be applied by query fingerprint, so they were too blunt to deploy here.
 
 Not all slow and killed queries are equal and triaging is important. As a very small number of users were impacted, and because the lift would have been considerably high, we decided not to pursue this query at this time lest we awaken the Balrog.
 
@@ -124,7 +124,7 @@ To populate our new `pull_requests.status`column, we needed to backfill with the
 While the logging indicated everything had run as expected, Kusto, datadot, and analytics hosts suggested the backfill had missed some pull requests[^2]. This was potentially an enormous setback. To find a reliable source of truth, we reached out to several teams and finally learned that what we needed was a new full snapshot of the table. With that done, we were able to determine that the backfill was mostly successful and the remaining group of pull requests missing `status` data were from the period after dual writing was introduced.
 
 #### Obstacle 4: But they were all of them deceived, for another bug was made
-And so we began fixing our dual writing bug, [a saga in itself](https://github.com/github/pull-requests/issues/15850). Our initial implementation set a pull request's status at the same time that an issue state was set via an existing ActiveRecord callback on the issue[^3]. The unexpected flaw with that was related to how an issue is created just before its associated pull request. Our first thought was to move this into its own callback on the pull request, but we decided to give orchestrations a try after some feedback from the Issues team[^4]. But we still encountered new mismatched records as there now a race condition between two orchestration processes and further iterations on this path caused deadlocks. Ultimately, the solution involved a callback on the issue that was localized to update pull request `status` whenever an issue's `state` changed. Phew.
+And so we began fixing our dual writing bug, [a saga in itself](https://github.com/github/pull-requests/issues/15850). Our initial implementation set a pull request's status at the same time that an issue state was set via an existing ActiveRecord callback on the issue[^3]. The unexpected flaw was related to how an issue is created just before its associated pull request. Our first thought was to move this into its own callback on the pull request, but we decided to give orchestrations a try after some feedback from the Issues team[^4]. But we still encountered new mismatched records as there now a race condition between two orchestration processes and further iterations on this path caused deadlocks. Ultimately, the solution involved a callback on the issue that was localized to update pull request `status` whenever an issue's `state` changed.
 
 And yet, the wraiths were still at our heels. Due to the multiple iterations of bug fixing, we still had out-of-sync pull request records. Instead of re-running the full transition, we took a more targeted approach by creating a transition that iterated over a CSV of only remaining mismatched records.
 
@@ -142,10 +142,10 @@ This project spanned many months and thus there was a lot to learn.
 1. Even if there are only a few people directly working on it at first, start a new public Slack channel dedicated solely to the project. This centralizes conversations and makes it easier to find history and share with others.
 2. Communicate with other teams early if the work could span beyond your team. As these queries occur on a shared `issues-pull-requests` cluster, eventually the Issues team began work that overlapped with ours. If we'd started that conversation earlier we could have more quickly identified opportunities to collaborate.
 3. Be careful with your feature flags. When we were troubleshooting the dual writing bugs, we opened a pull request to implement a new pathway while also removing the old way. On the surface that seemed like an efficient way to do it, but what we didn't consider was that the two ways were controlled by different feature flags. So there was a gap between when the old one was turned off and the new one was fully ramped up. This was a contributing factor to our record mismatches.
-   
+
 Additionally, this project generated some open questions for future development.
 1. The queries section of a service's scorecard only passes if there are no killed/slow queries. Even one causes it to fail. Is there a way that we can make this more granular to better estimate impact and priority?[^5]
-2. When attempting to verify the success of our transitions, we struggled to determine gain confidence as each source returned different results. Is there a better way to identify which source to use, how, and when?
+2. When attempting to verify the success of our transitions, we struggled to determine gain confidence as each data source returned different results. Is there a better way to identify which source to use, how, and when?
 3. Transitions can be tricky and we encountered several setbacks. How can we improve this process to allow for better troubleshooting?
 
 ---
