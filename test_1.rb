@@ -4,8 +4,6 @@ Purrr purr little cat, little cat purr purr humans,humans,
 	they clean whenever a door is opened, 
 rush in before the human chew on cable for attack dog, 
 
-pushed the mug off the table so hey! you there, with the hands. 
-
 Run as fast as i can into another room for no reason 
 	i will be pet i will be pet and then i will hiss and 
 	scamper twitch tail in permanent irritation but stare at ceiling 
