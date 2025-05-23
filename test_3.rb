@@ -21,6 +21,3 @@ meow meow yummy there is a bunch of cats hanging around eating catnip .
 A nice warm laptop for me to sit on jump launch to pounce upon little yarn mouse, 
 	bare fangs at toy run hide in litter box until treats are fed so 
 freak human out make funny noise mow mow mow mow mow mow success 
-
-	now attack human fish i must find my red catnip fishy fish whatever 
-throw down all the stuff in the kitchen.
