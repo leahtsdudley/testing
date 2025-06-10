@@ -126,7 +126,7 @@ Additionally, this project generated some open questions for future development.
 3. Transitions can be tricky and we encountered several setbacks. How can we improve this process to allow for better troubleshooting?
 
 ---
-This was a major effort and included collaboration from many people and teams. Thank you to @jankoszewski, @another-mattr, @blakewilliams, @arthurschreiber, @hasan-dot, @ekroon, @christianlang, @jamisonhyatt, @derekprior, @elenatanasoiu, `@danhodos`, `@rufo`, and `@dzader`! (_am I missing anyone?_)
+This was a major effort and included collaboration from many people and teams. Thank you to @jankoszewski, @another-mattr, @blakewilliams, @arthurschreiber, @hasan-dot, @ekroon, @christianlang, @derekprior, @elenatanasoiu, @codeminator, `@danhodos`, `@rufo`, and `@dzader`! (_am I missing anyone?_)
 
 [^1]: The full story is outlined [here](https://github.com/github/mysql-database-usage/issues/1473#issuecomment-2539459465).
 [^2]: https://github.com/github/pull-requests/issues/15675#issuecomment-2640038704
