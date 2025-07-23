@@ -2,7 +2,7 @@
 
 **Don’t forget the tl:dr here**
 
-_I feel like this post highlights our challenges more than our wins so I don't know if that emphasizes what we learned or whether it's "complainy". I also have recency bias here since it's been going on for a long time and I may not fully remember how impactful (postive or negative) each section of work was._
+_I feel like this post highlights our challenges more than our wins so I don't know if that emphasizes what we learned and other teams can apply it or whether it's "complainy". I also have recency bias here since it's been going on for a long time and I may not fully remember how impactful (postive or negative) each section of work was and I wrote a lot of this a few months ago so it leans toward what was going on at that moment._
 
 _Also, this may not be the best format for this audience. It leans more narrative with an incremental story but maybe a more journalistic approach with conclusions up front might be better (but admittedly harder for me to write)._
 
@@ -99,14 +99,12 @@ With more confidence in the backfilling, we began fixing our dual writing bug; (
 
 And yet, the wraiths were still at our heels. Due to the multiple iterations of dual-writing bug fixing, we now had out-of-sync pull request records, and we still had cleanup from the run of the initial transition to contend with. Instead of re-running the full transition, we took a more targeted approach by creating a transition that allowed us to iterate over targeted CSVs of the remaining records that were either mismatched or never backfilled.
 
-#### Obstacle 5: Indexing
-One of most impactful changes for non-performant queries is [adding an index](https://thehub.github.com/epd/engineering/dev-practicals/mysql/optimizing-indexes/) and we attempted that several times during this project. Indexes aren't a one-size-fits-all solution, depend on the order of fields in the query, and can be expensive to add so we decided to start small[^5] and work incrementally. Initial attempts did yield results[^6] but there are so many ways that pull requests are queried.
+#### Obstacle 5: One index to rule them all
+One of most impactful changes for non-performant queries is [adding an index](https://thehub.github.com/epd/engineering/dev-practicals/mysql/optimizing-indexes/) and we attempted that several times during this project. Indexes aren't a one-size-fits-all solution, depend on the order of fields in the query, and can be expensive to add so we decided to start small and work incrementally. Initial attempts did yield results. In [this query](https://github.com/github/pull-requests/issues/15920#issuecomment-2810238155) used in the PullRequestSynchronization job, a new index reduced the cost by >99%! In tandem, the Issues team also [added indexes](https://github.com/github/github/pull/372015) that improved our shared queries. After analyzing and comparing the remaining killed/slow queries for our service, we saw the most success with a [covering index](https://github.com/github/github/pull/383003) including the most commonly filtered fields. This had the potential to [reduce query times by an average of 75%](https://github.com/github/pull-requests/issues/17975). There are some trade-offs for maintaining an index of this size but we determined that it was the best solution to address the most number of queries at this time, especially since GraphQL was a major entry point with highly variable queries. This change also gives us the opportunity to replace existing index iterations using the same fields.
 
-MORE HERE
+#### Obstacles 6: There and back again (and again and again)
+_stuff about ctes and pagination_
 
-A glance at the [issues-pull-requests schema](https://github.com/github/github/blob/bb02c750dbf062232b9574a5c853fb7f802f1c41/db/issues-pull-requests-structure.sql#L2056-L2074) shows how often we've implemented this approach.
-
-#### Something about CTEs?
 
 ### Revel in your triumph
 
@@ -114,11 +112,11 @@ Though the quest was arduous and many shadows befell us, at last we reaped the h
 
 This epic required multiple [Scientist](https://github.com/github/scientist) experiments and many iterations to validate our changes. In the end, we were able to:
 
-- Reduce
+- Reduce something?
 
-_stats on the percent of all our service queries that are killed vs total now_
+_Stats on the percent of all our service queries that are killed vs total now?_
 
-- _Contextualize that this improved customer experience and that the same queries run without timing out after_
+_Contextualize that this improved customer experience and that the same queries run without timing out after?_
 
 _Results with ✨graphs✨_
 
@@ -128,11 +126,12 @@ This project spanned many months and there was a lot to learn.
 1. Even if there are only a few people directly working on it at first, start a new public Slack channel dedicated solely to the project. This centralizes conversations and makes it easier to find history and share with others.
 2. Communicate with other teams early if the work could span beyond your team. As these queries occur on a shared `issues-pull-requests` cluster, eventually the Issues team began work that overlapped with ours. If we'd started that conversation earlier we could have more quickly identified opportunities to collaborate.
 3. Be careful with your feature flags. When we were troubleshooting the dual writing bugs, we opened a pull request to implement a new pathway while also removing the old way. On the surface that seemed like an efficient way to do it, but what we didn't consider was that the two ways were controlled by different feature flags. So there was a gap between when the old one was turned off and the new one was fully ramped up. This was a contributing factor to our record mismatches.
+4. When `EXPLAIN`ing queries, don't solely rely on the `cost`. It is somewhat arbitrary and doesn't always give the best information whereas 'actual time` is a more solid comparison.
 
 Additionally, this project generated some open questions for future development.
-1. The queries section of a service's scorecard only passes if there are no killed/slow queries. Even one causes it to fail. Is there a way that we can make this more granular to better estimate impact and priority?[^7]
+1. The queries section of a service's scorecard only passes if there are no killed/slow queries. Even one causes it to fail. Is there a way that we can make this more granular to better estimate impact and priority?[^5]
 2. When attempting to verify the success of our transitions, we struggled to gain confidence as each data source returned different results. Is there a better way to identify which source to use, how, and when?
-3. Transitions and migrations can be tricky and we encountered several setbacks. How can we improve these processes to allow for better troubleshooting?
+3. Transitions and migrations can be tricky and we encountered several setbacks, including throttling due to service contention. How can we improve these processes to allow for better operation and troubleshooting?
 
 ---
 This was a major effort and included collaboration from many people and teams. Thank you to @jankoszewski, @another-mattr, @blakewilliams, @arthurschreiber, @hasan-dot, @ekroon, @jamisonhyatt, @christianlang, @derekprior, @elenatanasoiu, @codeminator, `@danhodos`, `@rufo`, and `@dzader`!
@@ -141,6 +140,4 @@ This was a major effort and included collaboration from many people and teams. T
 [^2]: https://github.com/github/pull-requests/issues/15675#issuecomment-2640038704
 [^3]: https://github.com/github/github/pull/348838
 [^4]: This pattern is generally preferred over callbacks to prevent long-running transactions and lock contention; https://github.com/github/github/pull/361425
-[^5]: https://github.com/github/github/pull/352336, https://github.com/github/github/pull/375571
-[^6]: https://github.com/github/pull-requests/issues/15920#issuecomment-2810238155
-[^7]: There is [a discussion](https://docs.google.com/document/d/1BS1ZvCJ5k7vp73XlKj_Rh5XOxd7eYkpxpPW2AZIZWDM) open about this.
+[^5]: There is [a discussion](https://docs.google.com/document/d/1BS1ZvCJ5k7vp73XlKj_Rh5XOxd7eYkpxpPW2AZIZWDM) open about this.
