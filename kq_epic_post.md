@@ -47,7 +47,7 @@ SELECT
 The basic question here is "Why can't a pull request have its own state?". The answer seemed like a clear win. Put a `state` column on `pull_requests` and remove the expensive join on issues `state`. Easy peasy.
 
 ### Face the challengers
-Spoiler alert: It was not easy peasy. Like the treacherous paths of Caradhras, we encountered dead ends that pushed us to try other routes.
+Spoiler alert: It was not easy peasy.
 
 #### Obstacle 1: The column that could not be named
 An issue can be one of two states - open or closed. The same is true for pull requests at the database level. However, at the model level, a pull request can have three states: open, closed, or merged, as determined by the [PullRequest#state method](https://github.com/github/github/blob/a18286f131f4dc80dcbab605938125fcd9ac509d/packages/pull_requests/app/models/pull_request.rb#L650-L654). The existence of this method blocked us from simply adding a `pull_requests.state` field. We briefly explored some workarounds for this naming conflict, however, the best solution ended up being the simplest one; choose a different column name. With `pull_requests.status` in place, we could continue on our way.
