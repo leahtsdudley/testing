@@ -1,10 +1,8 @@
 ## The Fellowship of the Query: The Journey to a Greener Scorecard
 
-**Don’t forget the tl:dr here**
+#### TL;DR
 
-_I feel like this post highlights our challenges more than our wins so I don't know if that emphasizes what we learned and other teams can apply it or whether it's "complainy". I also have recency bias here since it's been going on for a long time and I may not fully remember how impactful (postive or negative) each section of work was and I wrote a lot of this a few months ago so it leans toward what was going on at that moment._
-
-_Also, this may not be the best format for this audience. It leans more narrative with an incremental story but maybe a more journalistic approach with conclusions up front might be better (but admittedly harder for me to write)._
+The Pull Requests team resolved 109 killed/slow queries to achieve a green scorecard. _Maybe I can come up with something like 'improved by an average of X'?_
 
 ---
 ### The Quest
@@ -80,7 +78,7 @@ SELECT
     `pull_requests`.`id` DESC
 ```
 
-Simply swapping `issues.state` for `pull_request.status` wasn't enough for these queries. Thus we explored other optimizations, including breaking out subqueries, forcing or ignoring an index, and reorganizing the query structure, none of which showed improvements[^1]. We even considered storing label ids in a new column on `issues` to eliminate the extra joins, but that presented its own big lift that was far outside the scope of this epic.
+Simply swapping `issues.state` for `pull_request.status` wasn't enough for these queries. Thus we explored other optimizations, including breaking out subqueries, forcing or ignoring an index, and reorganizing the query structure, none of which showed improvements[^labels]. We even considered storing label ids in a new column on `issues` to eliminate the extra joins, but that presented its own big lift that was far outside the scope of this epic.
 
 So, like the dwarves in the mines of Moria, we dug deeper to determine _who_ was hitting these queries. Over a period of 30 days, we found that between the two queries, all calls were coming from only 4 users within 4 repos. More interestingly, all 4 users were GitHub apps mimicking merge queue functionality. One in particular was routinely causing around 10k events every 20 minutes. With this new information, our minds turned towards rate limiting. Unfortunately, rate limits are set based on individual app installations and cannot be applied by query fingerprint, so they were too blunt to deploy here.
 
@@ -89,10 +87,10 @@ Not all slow and killed queries are equal and triaging is important. As a very s
 #### Obstacle 3: The road goes ever on
 To populate our new `pull_requests.status`column, we needed to backfill with the data from `issues.state`. The `pull_requests` table is _big_ so we knew we were in for a hefty process. What we didn't expect is that the transition would take 604 hours of run time across a period of 33 days, including dry runs. Within that, we had to maintain vigilance as we encountered unexplained failures that would interrupt the process, requiring us to manually restart. Finally, when we thought our toil had borne its reward, we were faced with some confusing data.
 
-While the logging indicated everything had run as expected, Kusto, datadot, and analytics hosts suggested the backfill had missed some pull requests[^2]. This was potentially an enormous setback. To find a reliable source of truth, we reached out to several teams and finally learned that what we needed was a new full snapshot of the table. With that done, we were able to determine that the backfill was mostly successful and the remaining group of pull requests missing `status` data were from the period after dual writing was introduced.
+While the logging indicated everything had run as expected, Kusto, datadot, and analytics hosts suggested the backfill had missed some pull requests[^backfill]. This was potentially an enormous setback. To find a reliable source of truth, we reached out to several teams and finally learned that what we needed was a new full snapshot of the table. With that done, we were able to determine that the backfill was mostly successful and the remaining group of pull requests missing `status` data were from the period after dual writing was introduced.
 
 #### Obstacle 4: But they were all of them deceived, for another bug was made
-With more confidence in the backfilling, we began fixing our dual writing bug; ([a saga in itself](https://github.com/github/pull-requests/issues/15850)). Our initial implementation set a pull request's `status` at the same time as an `issue` state via an existing ActiveRecord callback on the issue[^3]. The unexpected flaw was that an issue is created just before its associated pull request. Our first thought was to move this into its own callback on the pull request, but we decided to give orchestrations a try after some feedback from the Issues team[^4]. But we still encountered new mismatched records as there now a race condition between two orchestration processes and further iterations on this path caused deadlocks. Ultimately, the solution involved a callback on the issue that was localized to update pull request `status` whenever an issue's `state` changed.
+With more confidence in the backfilling, we began fixing our dual writing bug; ([a saga in itself](https://github.com/github/pull-requests/issues/15850)). Our initial implementation set a pull request's `status` at the same time as an `issue` state via an existing ActiveRecord callback on the issue[^callback]. The unexpected flaw was that an issue is created just before its associated pull request. Our first thought was to move this into its own callback on the pull request, but we decided to give orchestrations a try after some feedback from the Issues team[^orch]. But we still encountered new mismatched records as there now a race condition between two orchestration processes and further iterations on this path caused deadlocks. Ultimately, the solution involved a callback on the issue that was localized to update pull request `status` whenever an issue's `state` changed.
 
 And yet, the wraiths were still at our heels. Due to the multiple iterations of dual-writing bug fixing, we now had out-of-sync pull request records, and we still had cleanup from the run of the initial transition to contend with. Instead of re-running the full transition, we took a more targeted approach by creating a transition that allowed us to iterate over targeted CSVs of the remaining records that were either mismatched or never backfilled.
 
@@ -100,24 +98,23 @@ And yet, the wraiths were still at our heels. Due to the multiple iterations of 
 One of most impactful changes for non-performant queries is [adding an index](https://thehub.github.com/epd/engineering/dev-practicals/mysql/optimizing-indexes/) and we attempted that several times during this project. Indexes aren't a one-size-fits-all solution, depend on the order of fields in the query, and can be expensive to add so we decided to start small and work incrementally. Initial attempts did yield results. In [this query](https://github.com/github/pull-requests/issues/15920#issuecomment-2810238155) used in the PullRequestSynchronization job, a new index reduced the cost by >99%! In tandem, the Issues team also [added indexes](https://github.com/github/github/pull/372015) that improved our shared queries. After analyzing and comparing the remaining killed/slow queries for our service, we saw the most success with a [covering index](https://github.com/github/github/pull/383003) including the most commonly filtered fields. This had the potential to [reduce query times by an average of 75%](https://github.com/github/pull-requests/issues/17975). There are some trade-offs for maintaining an index of this size but we determined that it was the best solution to address the most number of queries at this time, especially since GraphQL was a major entry point with highly variable queries. This change also gives us the opportunity to replace existing index iterations using the same fields.
 
 #### Obstacles 6: There and back again (and again and again)
-_stuff about ctes and pagination_
+In one of our many collaborations with the Databases team, we discovered another great tool for our bag of holding, especially when it comes to pagination - [Common Table Expressions](https://dev.mysql.com/doc/refman/en/with.html). We were able to utilize this to successfully mitigate queries on pull request reviews[^reviews]. In this case, there was a non-trivial amount of killed queries coming almost entirely from two large repos where a bot was adding as many as 100k reviews on a single pull request. After testing subqueries and unions without gains, applying a CTE looked like a clear winner by reducing the overall time by ~85% when `explain`ing. We started to doubt ourselves when the Scientist experiment didn't yield the results we expected until we remembered how localized these queries were. By using a feature flag to test specifically on the problematic repos we got the results we were after.
 
+[reviews specific graph here]
 
 ### Revel in your triumph
+Though the quest was arduous and many shadows befell us, at last we reaped the harvest of victory. We were able to resolve 109 of the 115 queries we investigated during this epic.
 
-Though the quest was arduous and many shadows befell us, at last we reaped the harvest of victory.
+_I don't think I'll use the stuff below this but wanted to save it for now just in case_
 
-The biggest source of our service's queries were from the `/pulls` API endpoint. In February of this year[^5], it saw about 367M queries a week with 165k being killed or slow, about 0.044%. By July, it was down to 204k killed/slow out of 420M, about 0.049%. -> _obviously this isn't the story I want to tell but leaving this as a template because I think when we finish up the last of the experiments we might have something here_
+Removing the join to `issues.state` and relying on `pull_requests.status` was our biggest win.
+| Entrypoint | Share of Queries | Avg. Event Reduction |
+| --- | --- | --- |
+| REST `/pulls` | 49% | ? |
+| GraphQL | 23% | ? |
+| PushHandleMatchingPullRequestsJob | 5% | ? |
 
-Another big win was in GraphQL.
-
-_Maybe a table showing start/finish/%?_
-
-_Stats on the percent of all our service queries that are killed vs total now?_
-
-_Contextualize that this improved customer experience and that the same queries run without timing out after?_
-
-_Results with ✨graphs✨_
+The biggest source of our service's queries were from the `/pulls` API endpoint. In February of this year[^retention], it saw about 367M queries a week with 165k being killed or slow, about 0.044%. By July, it was down to 204k killed/slow out of 420M, about 0.049%.
 
 ### Reflect on your journey
 
@@ -128,16 +125,17 @@ This project spanned many months and there was a lot to learn.
 4. When `EXPLAIN`ing queries, don't solely rely on the `cost`. It is somewhat arbitrary and doesn't always give the best information whereas 'actual time` is a more solid comparison.
 
 Additionally, this project generated some open questions for future development.
-1. The queries section of a service's scorecard only passes if there are no killed/slow queries. Even one causes it to fail. Is there a way that we can make this more granular to better estimate impact and priority?[^6]
+1. The queries section of a service's scorecard only passes if there are no killed/slow queries. Even one causes it to fail. Is there a way that we can make this more granular to better estimate impact and priority?[^scorecard]
 2. When attempting to verify the success of our transitions, we struggled to gain confidence as each data source returned different results. Is there a better way to identify which source to use, how, and when?
 3. Transitions and migrations can be tricky and we encountered several setbacks, including throttling due to service contention. How can we improve these processes to allow for better operation and troubleshooting?
 
 ---
-This was a major effort and included collaboration from many people and teams. Thank you to @jankoszewski, @another-mattr, @blakewilliams, @arthurschreiber, @hasan-dot, @ekroon, @jamisonhyatt, @christianlang, @derekprior, @elenatanasoiu, @codeminator, `@danhodos`, `@rufo`, and `@dzader`!
+This was a major effort and included collaboration from many people and teams. Big thank yous to @jankoszewski, @another-mattr, @jamisonhyatt, @arthurschreiber, @blakewilliams, @hasan-dot, @ekroon, @christianlang, @derekprior, @elenatanasoiu, @codeminator, `@danhodos`, `@rufo`, and `@dzader`!
 
-[^1]: The full story is outlined [here](https://github.com/github/mysql-database-usage/issues/1473#issuecomment-2539459465).
-[^2]: https://github.com/github/pull-requests/issues/15675#issuecomment-2640038704
-[^3]: https://github.com/github/github/pull/348838
-[^4]: This pattern is generally preferred over callbacks to prevent long-running transactions and lock contention; https://github.com/github/github/pull/361425
-[^5]: Due to data retention periods, it's difficult to calculate impact from when we began last year. https://app.datadoghq.com/notebook/12827498/prs-slow-killed-queries
-[^6]: There is [a discussion](https://docs.google.com/document/d/1BS1ZvCJ5k7vp73XlKj_Rh5XOxd7eYkpxpPW2AZIZWDM) open about this.
+[^labels]: The full story is outlined [here](https://github.com/github/mysql-database-usage/issues/1473#issuecomment-2539459465).
+[^backfill]: https://github.com/github/pull-requests/issues/15675#issuecomment-2640038704
+[^callback]: https://github.com/github/github/pull/348838
+[^orch]: This pattern is generally preferred over callbacks to prevent long-running transactions and lock contention; https://github.com/github/github/pull/361425
+[^reviews]: https://github.com/github/mysql-database-usage/issues/2301
+[^retention]: Due to data retention periods, it's difficult to calculate impact from when we began last year. https://app.datadoghq.com/notebook/12827498/prs-slow-killed-queries
+[^scorecard]: There is [a discussion](https://docs.google.com/document/d/1BS1ZvCJ5k7vp73XlKj_Rh5XOxd7eYkpxpPW2AZIZWDM) open about this.
