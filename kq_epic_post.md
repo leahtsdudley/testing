@@ -1,8 +1,6 @@
 ## The Fellowship of the Query: The Journey to a Greener Scorecard
 
-#### TL;DR
-
-The Pull Requests team resolved 109 killed/slow queries to achieve a green scorecard.
+**TL;DR**: The Pull Requests team resolved 109 killed/slow queries to achieve a green scorecard.
 
 ---
 ### The Quest
@@ -16,7 +14,7 @@ The first step in any valiant quest is to study your map and pack your bag. For 
 
 So just work your way from the top of the backlog, right? We soon found there were a few snags to this approach.
 1. **The scorecard isn't static**. An existing query might be improved by an indirect change, or a new problematic query could arise from updated code or processes. With moving targets we needed to keep a closer eye on which queries were impacting us the most.
-2. **Query identifiers change**. Each query is attached to a `fingerprint` and `mysql_digest` as unique identifiers. This groups queries by their structure and origin, and entry point. Sometimes a query's identifier changes. For example, in November 2024 several of our affected queries appeared to have been solved, but at the same time new issues were being created with identical query structures and entry points but with new fingerprints, [as explained here](https://github.com/github/mysql-database-scorecard/issues/57). Similarly, in July 2025 a change was made to identify queries by their `mysql_digest` instead of `fingerprint` resulting again in issues closing and new ones opening. This meant that we had to be vigilant about cross-referencing old query issues to new ones.
+2. **Query identifiers change**. Each query is attached to a `fingerprint` and `mysql_digest` as unique identifiers. This groups queries by their structure and origin. Sometimes a query's identifier changes. For example, in November 2024 several of our affected queries appeared to have been solved, but at the same time new issues were being created with identical query structures and entry points but with new fingerprints, [as explained here](https://github.com/github/mysql-database-scorecard/issues/57). Similarly, in July 2025 a change was made to identify queries by their `mysql_digest` instead of `fingerprint` resulting again in issues closing and new ones opening. This meant that we had to be vigilant about cross-referencing old query issues to new ones.
 3. **Automations aren't perfect**. Killed query issues are regularly updated via automation with current performance data, which we used to determine impact and set priorities. Like any system, it's susceptible to bugs meaning that our data was delayed or inaccurate. It also can't tell when one query is a slight variation from another but fundamentally the same.
 
 ### Plan your adventure
@@ -83,8 +81,6 @@ WHERE
   AND `issues_labels`.`issue_id` = `issues`.`id`
   AND `labels`.`id` = `issues_labels`.`label_id`
   AND `labels`.`repository_id` = `issues`.`repository_id`
-ORDER BY
-  `pull_requests`.`id` DESC
 ```
 
 Simply swapping `issues.state` for `pull_request.status` wasn't enough for these queries. Thus we explored other optimizations, including breaking out subqueries, forcing or ignoring an index, and reorganizing the query structure, none of which showed improvements[^labels]. We even considered storing label ids in a new column on the `issues` table to eliminate the extra joins, but that presented its own big lift that was far outside the scope of this epic.
@@ -112,7 +108,7 @@ This project spanned many months and there was a lot to learn.
 1. Even if there are only a few people directly working on it at first, start a new public Slack channel dedicated solely to the project. This centralizes conversations and makes it easier to find history and share with others.
 2. Communicate with other teams early if the work could span beyond your team. As these queries occur on a shared `issues-pull-requests` cluster, eventually the Issues team began work that overlapped with ours. If we'd started that conversation earlier we could have more quickly identified opportunities to collaborate.
 3. Be careful with your feature flags. When we were troubleshooting the dual writing bugs, we opened a pull request to implement a new pathway while also removing the old way. On the surface that seemed like an efficient way to do it, but what we didn't consider was that the two ways were controlled by different feature flags. So there was a gap between when the old one was turned off and the new one was fully ramped up. This was a contributing factor to our record mismatches.
-4. When `EXPLAIN`ing queries, don't solely rely on the `cost`. It is somewhat arbitrary and doesn't always give the best information whereas 'actual time` is a more solid comparison.
+4. When `EXPLAIN`ing queries, don't solely rely on the `cost`. It is somewhat arbitrary and doesn't always give the best information whereas `actual time` can often be a more solid comparison.
 
 Additionally, this project generated some open questions for future development.
 1. The queries section of a service's scorecard only passes if there are no killed/slow queries. Even one causes it to fail. Is there a way that we can make this more granular to better estimate impact and priority?[^scorecard]
@@ -122,10 +118,10 @@ Additionally, this project generated some open questions for future development.
 ---
 This was a major effort and included collaboration from many people and teams. Big thank yous to @jankoszewski, @another-mattr, @jamisonhyatt, @arthurschreiber, @blakewilliams, @hasan-dot, @ekroon, @christianlang, @derekprior, @elenatanasoiu, @codeminator, `@danhodos`, `@rufo`, and `@dzader`!
 
-[^labels]: The full story is outlined [here](https://github.com/github/mysql-database-usage/issues/1473#issuecomment-2539459465).
 [^backfill]: https://github.com/github/pull-requests/issues/15675#issuecomment-2640038704
 [^callback]: https://github.com/github/github/pull/348838
 [^orch]: This pattern is generally preferred over callbacks to prevent long-running transactions and lock contention; https://github.com/github/github/pull/361425
+[^labels]: The full story is outlined [here](https://github.com/github/mysql-database-usage/issues/1473#issuecomment-2539459465).
 [^reviews]: https://github.com/github/mysql-database-usage/issues/2301
-[^retention]: Due to data retention periods, it's difficult to calculate impact from when we began last year. https://app.datadoghq.com/notebook/12827498/prs-slow-killed-queries
-[^scorecard]: There is [a discussion](https://docs.google.com/document/d/1BS1ZvCJ5k7vp73XlKj_Rh5XOxd7eYkpxpPW2AZIZWDM) open about this.
+[^retention]: Due to data retention periods, it's difficult to calculate impact from when we began last year.
+[^scorecard]: There is an open [discussion](https://docs.google.com/document/d/1BS1ZvCJ5k7vp73XlKj_Rh5XOxd7eYkpxpPW2AZIZWDM) about this.
