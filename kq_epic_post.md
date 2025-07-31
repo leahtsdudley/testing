@@ -24,7 +24,7 @@ With those challenges in mind, we gathered our fellowship and began to strategiz
 
 ```
 SELECT
-    COUNT (*)
+  COUNT (*)
 FROM
   `pull_requests`
   , `issues`
@@ -47,34 +47,44 @@ Spoiler alert: It was not easy peasy.
 #### Obstacle 1: The column that could not be named
 An issue can be one of two states - open or closed. The same is true for pull requests at the database level. However, at the model level, a pull request can have three states: open, closed, or merged, as determined by the [PullRequest#state method](https://github.com/github/github/blob/a18286f131f4dc80dcbab605938125fcd9ac509d/packages/pull_requests/app/models/pull_request.rb#L650-L654). The existence of this method blocked us from simply adding a `pull_requests.state` field. We briefly explored some workarounds for this naming conflict, however, the best solution ended up being the simplest one; choose a different column name. With `pull_requests.status` in place, we could continue on our way.
 
-#### Obstacle 2: We've had one, yes, but what about second join
+#### Obstacle 2: The road goes ever on
+To use our new `pull_requests.status`column with `issues.state` we had to backfill with the historical data from `issues.state` while maintaining dual writing between the two. The `pull_requests` table is _big_ so we knew we were in for a hefty process. What we didn't expect is that the transition would take 604 hours of run time across a period of 33 days, including dry runs. Within that, we had to maintain vigilance as we encountered unexplained failures that would interrupt the process, requiring us to manually restart. Finally, when we thought our toil had borne its reward, we were faced with some confusing data.
+
+While the logging indicated everything had run as expected, Kusto, datadot, and analytics hosts suggested the backfill had missed some pull requests[^backfill]. This was potentially an enormous setback. To find a reliable source of truth, we reached out to several teams and finally learned that what we needed was a new full snapshot of the table. With that done, we were able to determine that the backfill was mostly successful and the remaining group of pull requests missing `status` data were from the period after dual writing was introduced.
+
+#### Obstacle 3: But they were all of them deceived, for another bug was made
+With more confidence in the backfilling, we began fixing our dual writing bug; ([a saga in itself](https://github.com/github/pull-requests/issues/15850)). Our initial implementation set a pull request's `status` at the same time as an `issue` state via an existing ActiveRecord callback on the issue[^callback]. The unexpected flaw was that an issue is created just before its associated pull request. Our first thought was to move this into its own callback on the pull request, but we decided to give orchestrations a try after some feedback from the Issues team[^orch]. But we still encountered new mismatched records as there now a race condition between two orchestration processes and further iterations on this path caused deadlocks. Ultimately, the solution involved a callback on the issue that was localized to update pull request `status` whenever an issue's `state` changed.
+
+And yet, the wraiths were still at our heels. Due to the multiple iterations of dual-writing bug fixing, we now had out-of-sync pull request records, and we still had cleanup from the run of the initial transition to contend with. Instead of re-running the full transition, we took a more targeted approach by creating a transition that allowed us to iterate over targeted CSVs of the remaining records that were either mismatched or never backfilled.
+
+#### Obstacle 4: We've had one, yes, but what about second join
 While the majority of the queries had a single join to issues for the state, there were some that were a bit more greedy. These came from GraphQL calls looking for a list of pull requests by label, and they required multiple joins to form a query that looked something like this:
 
 ```
 SELECT
-    `pull_requests`.`id`
-  FROM
-    `pull_requests`
-    , `issues`
-    , `issues_labels`
-    , `labels`
-  WHERE
-    `labels`.`lowercase_name` IN (
-      . . .
-    )
-    AND `pull_requests`.`repository_id` = ?
-    AND (
-      `pull_requests`.`user_hidden` = ?
-      OR `pull_requests`.`user_id` = ?
-    )
-    AND `issues`.`state` = ?
-    AND `issues`.`pull_request_id` = `pull_requests`.`id`
-    AND `issues`.`repository_id` = `pull_requests`.`repository_id`
-    AND `issues_labels`.`issue_id` = `issues`.`id`
-    AND `labels`.`id` = `issues_labels`.`label_id`
-    AND `labels`.`repository_id` = `issues`.`repository_id`
-  ORDER BY
-    `pull_requests`.`id` DESC
+  `pull_requests`.`id`
+FROM
+  `pull_requests`
+  , `issues`
+  , `issues_labels`
+  , `labels`
+WHERE
+  `labels`.`lowercase_name` IN (
+    . . .
+  )
+  AND `pull_requests`.`repository_id` = ?
+  AND (
+    `pull_requests`.`user_hidden` = ?
+    OR `pull_requests`.`user_id` = ?
+  )
+  AND `issues`.`state` = ?
+  AND `issues`.`pull_request_id` = `pull_requests`.`id`
+  AND `issues`.`repository_id` = `pull_requests`.`repository_id`
+  AND `issues_labels`.`issue_id` = `issues`.`id`
+  AND `labels`.`id` = `issues_labels`.`label_id`
+  AND `labels`.`repository_id` = `issues`.`repository_id`
+ORDER BY
+  `pull_requests`.`id` DESC
 ```
 
 Simply swapping `issues.state` for `pull_request.status` wasn't enough for these queries. Thus we explored other optimizations, including breaking out subqueries, forcing or ignoring an index, and reorganizing the query structure, none of which showed improvements[^labels]. We even considered storing label ids in a new column on the `issues` table to eliminate the extra joins, but that presented its own big lift that was far outside the scope of this epic.
@@ -82,16 +92,6 @@ Simply swapping `issues.state` for `pull_request.status` wasn't enough for these
 So, like the dwarves in the mines of Moria, we dug deeper to determine _who_ was hitting these queries. Over a period of 30 days, we found that between the two queries, all calls were coming from only 4 users within 4 repos. More interestingly, all 4 users were GitHub apps mimicking merge queue functionality. One in particular was routinely causing around 10k events every 20 minutes. With this new information, our minds turned towards rate limiting. Unfortunately, rate limits are set based on individual app installations and cannot be applied by query fingerprint, so they were too blunt to deploy here.
 
 Not all slow and killed queries are equal and triaging is important. As a very small number of users were impacted, and because the lift would have been considerably high, we decided not to pursue this query at this time lest we awaken the Balrog.
-
-#### Obstacle 3: The road goes ever on
-To use our new `pull_requests.status`column with `issues.state` we had to backfill with the historical data from `issues.state` while maintaining dual writing between the two. The `pull_requests` table is _big_ so we knew we were in for a hefty process. What we didn't expect is that the transition would take 604 hours of run time across a period of 33 days, including dry runs. Within that, we had to maintain vigilance as we encountered unexplained failures that would interrupt the process, requiring us to manually restart. Finally, when we thought our toil had borne its reward, we were faced with some confusing data.
-
-While the logging indicated everything had run as expected, Kusto, datadot, and analytics hosts suggested the backfill had missed some pull requests[^backfill]. This was potentially an enormous setback. To find a reliable source of truth, we reached out to several teams and finally learned that what we needed was a new full snapshot of the table. With that done, we were able to determine that the backfill was mostly successful and the remaining group of pull requests missing `status` data were from the period after dual writing was introduced.
-
-#### Obstacle 4: But they were all of them deceived, for another bug was made
-With more confidence in the backfilling, we began fixing our dual writing bug; ([a saga in itself](https://github.com/github/pull-requests/issues/15850)). Our initial implementation set a pull request's `status` at the same time as an `issue` state via an existing ActiveRecord callback on the issue[^callback]. The unexpected flaw was that an issue is created just before its associated pull request. Our first thought was to move this into its own callback on the pull request, but we decided to give orchestrations a try after some feedback from the Issues team[^orch]. But we still encountered new mismatched records as there now a race condition between two orchestration processes and further iterations on this path caused deadlocks. Ultimately, the solution involved a callback on the issue that was localized to update pull request `status` whenever an issue's `state` changed.
-
-And yet, the wraiths were still at our heels. Due to the multiple iterations of dual-writing bug fixing, we now had out-of-sync pull request records, and we still had cleanup from the run of the initial transition to contend with. Instead of re-running the full transition, we took a more targeted approach by creating a transition that allowed us to iterate over targeted CSVs of the remaining records that were either mismatched or never backfilled.
 
 #### Obstacle 5: One index to rule them all
 One of most impactful changes for non-performant queries is [adding an index](https://thehub.github.com/epd/engineering/dev-practicals/mysql/optimizing-indexes/) and we attempted that several times during this project. Indexes aren't a one-size-fits-all solution, depend on the order of fields in the query, and can be expensive to add so we decided to start small and work incrementally. Initial attempts did yield results. In [this query](https://github.com/github/pull-requests/issues/15920#issuecomment-2810238155) used in the PullRequestSynchronization job, a new index reduced the cost by >99%! In tandem, the Issues team also [added indexes](https://github.com/github/github/pull/372015) that improved our shared queries. After analyzing and comparing the remaining killed/slow queries for our service, we saw the most success with a [covering index](https://github.com/github/github/pull/383003) including the most commonly filtered fields. This had the potential to [reduce query times by an average of 75%](https://github.com/github/pull-requests/issues/17975). There are some trade-offs for maintaining an index of this size but we determined that it was the best solution to address the most number of queries at this time, especially since GraphQL was a major entry point with highly variable queries. This change also gives us the opportunity to replace existing index iterations using the same fields.
