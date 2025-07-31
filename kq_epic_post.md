@@ -22,24 +22,21 @@ So just work your way from the top of the backlog, right? We soon found there we
 ### Plan your adventure
 With those challenges in mind, we gathered our fellowship and began to strategize. There were a couple of approaches we explored with the most common trait being a non-performant join on the `issues` table. Because pull requests continue to track their state with an issue under the hood, querying a pull request by its state required us to also query the `issues` table. This resulted in queries that looked something like this:
 
-
-With those challenges in mind, we gathered our fellowship and began to strategize. We noticed early on that a common pattern among non-performant queries was joining to the `issues` table, specifically to fetch the `issues.state`. This was due to the historical relationship of shared or delegated attributes between pull requests and issues. This resulted in queries that looked something like this:
-
 ```
 SELECT
     COUNT (*)
-  FROM
-    `pull_requests`
-    , `issues`
-  WHERE
-    `pull_requests`.`repository_id` = ?
-    AND (
-      `pull_requests`.`user_hidden` = ?
-      OR `pull_requests`.`user_id` = ?
-    )
-    AND `issues`.`state` = ?
-    AND `issues`.`pull_request_id` = `pull_requests`.`id`
-    AND `issues`.`repository_id` = `pull_requests`.`repository_id`
+FROM
+  `pull_requests`
+  , `issues`
+WHERE
+  `pull_requests`.`repository_id` = ?
+  AND (
+    `pull_requests`.`user_hidden` = ?
+    OR `pull_requests`.`user_id` = ?
+  )
+  AND `issues`.`state` = ?
+  AND `issues`.`pull_request_id` = `pull_requests`.`id`
+  AND `issues`.`repository_id` = `pull_requests`.`repository_id`
 ```
 
 The basic question here is "Why can't a pull request have its own state?". The answer seemed like a clear win. Put a `state` column on `pull_requests` and remove the expensive join on issues `state`. Easy peasy.
