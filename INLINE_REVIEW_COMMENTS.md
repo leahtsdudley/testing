@@ -289,3 +289,21 @@ README.md should include:
 5. Large binary files without documentation
 
 **Recommendation:** Please address the critical issues before requesting another review.
+
+---
+
+## How to Use These Comments
+
+These inline comments are formatted to match GitHub's PR review interface. You can:
+1. Reference specific line numbers when making fixes
+2. Use the suggested changes (in diff format) to quickly apply fixes
+3. Follow the categorized feedback (❌ critical, ⚠️ warning, 💡 suggestion)
+
+## Review Process
+
+1. **First Pass:** Address all ❌ critical issues
+2. **Second Pass:** Fix ⚠️ warnings
+3. **Third Pass:** Consider 💡 suggestions and enhancements
+4. **Final Pass:** Request a follow-up review
+
+Thank you for your contribution! These comments are intended to be constructive and help improve the overall quality of the codebase. If you have questions about any feedback, please don't hesitate to ask.
