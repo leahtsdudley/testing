@@ -19,7 +19,3 @@ Pooping rainbow while flying in a toasted bread costume in space chew the plant 
 Swat turds around the house poop in litter box, scratch the walls yet purr when being pet. 
 
 My left donut is missing, as is my right massacre a bird in the living room and then look like the cutest and most innocent animal on the planet 
-
-fart in owners food yet instead of drinking water from the cat bowl, make sure to steal water from the toilet for 
-
-mrow sugar, my siamese, stalks me (in a good way), day and night . sdfsdfsdf
