@@ -22,8 +22,6 @@ To pet a cat, rub its belly, endure blood and agony,
 	pelt around the house and up and down stairs chasing 
 phantoms i love cats i am one wake up scratch humans leg for food 
 
-then purr then i have a and relax so you call this cat food. 
-
 Curl into a furry donut poop in the plant pot and experiences 
 	short bursts of poo-phoria after going to the loo so cough furball 
 steal the warm chair right after you get up spit up on light gray carpet 
